@@ -221,6 +221,23 @@ class OpenDDE(nn.Module):
     Implements the OpenDDE prediction loop.
     """
 
+    @staticmethod
+    def _copy_structural_token_features(
+        input_feature_dict: dict[str, Any],
+        structural_feature_dict: dict[str, Any],
+        parent: torch.Tensor,
+    ) -> None:
+        """Project residue features while keeping cyclic support optional."""
+        for token_feature in ["asym_id", "residue_index", "entity_id", "sym_id"]:
+            structural_feature_dict[token_feature] = input_feature_dict[
+                token_feature
+            ].index_select(dim=-1, index=parent)
+        cyclic_period = input_feature_dict.get("cyclic_period")
+        if cyclic_period is not None:
+            structural_feature_dict["cyclic_period"] = cyclic_period.index_select(
+                dim=-1, index=parent
+            )
+
     def __init__(self, configs: OpenDDEConfig) -> None:
         super(OpenDDE, self).__init__()
         self.configs = configs
@@ -498,10 +515,9 @@ class OpenDDE(nn.Module):
         structural_feature_dict["atom_to_tokatom_idx"] = input_feature_dict[
             "atom_to_structural_tokatom_idx"
         ].long()
-        for token_feature in ["asym_id", "residue_index", "entity_id", "sym_id", "cyclic_period"]:
-            structural_feature_dict[token_feature] = input_feature_dict[
-                token_feature
-            ].index_select(dim=-1, index=parent)
+        self._copy_structural_token_features(
+            input_feature_dict, structural_feature_dict, parent
+        )
 
         structural_feature_dict["has_frame"] = input_feature_dict[
             "structural_has_frame"
@@ -588,16 +604,9 @@ class OpenDDE(nn.Module):
             structural_feature_dict["atom_to_tokatom_idx"] = input_feature_dict[
                 "atom_to_structural_tokatom_idx"
             ].long()
-            for token_feature in [
-                "asym_id",
-                "residue_index",
-                "entity_id",
-                "sym_id",
-                "cyclic_period",
-            ]:
-                structural_feature_dict[token_feature] = input_feature_dict[
-                    token_feature
-                ].index_select(dim=-1, index=parent)
+            self._copy_structural_token_features(
+                input_feature_dict, structural_feature_dict, parent
+            )
 
             structural_feature_dict["has_frame"] = input_feature_dict[
                 "structural_has_frame"

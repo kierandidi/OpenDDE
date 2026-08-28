@@ -1,5 +1,6 @@
 import torch
 
+from opendde.model.opendde import OpenDDE
 from opendde.model.modules.embedders import shortest_cyclic_offset
 
 
@@ -25,6 +26,26 @@ def test_shortest_cyclic_offset_preserves_linear_and_cross_chain_pairs() -> None
         offset,
     )
     assert torch.equal(
-        shortest_cyclic_offset(offset, period, torch.zeros_like(offset, dtype=torch.bool)),
+        shortest_cyclic_offset(
+            offset, period, torch.zeros_like(offset, dtype=torch.bool)
+        ),
         offset,
     )
+
+
+def test_structural_tokens_keep_cyclic_period_optional() -> None:
+    input_features = {
+        name: torch.tensor([[10, 20, 30]])
+        for name in ("asym_id", "residue_index", "entity_id", "sym_id")
+    }
+    parent = torch.tensor([2, 0])
+    structural_features = {}
+
+    OpenDDE._copy_structural_token_features(input_features, structural_features, parent)
+
+    assert "cyclic_period" not in structural_features
+    assert torch.equal(structural_features["residue_index"], torch.tensor([[30, 10]]))
+
+    input_features["cyclic_period"] = torch.tensor([[3, 3, 3]])
+    OpenDDE._copy_structural_token_features(input_features, structural_features, parent)
+    assert torch.equal(structural_features["cyclic_period"], torch.tensor([[3, 3]]))
