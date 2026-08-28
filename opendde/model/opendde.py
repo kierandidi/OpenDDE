@@ -498,7 +498,7 @@ class OpenDDE(nn.Module):
         structural_feature_dict["atom_to_tokatom_idx"] = input_feature_dict[
             "atom_to_structural_tokatom_idx"
         ].long()
-        for token_feature in ["asym_id", "residue_index", "entity_id", "sym_id"]:
+        for token_feature in ["asym_id", "residue_index", "entity_id", "sym_id", "cyclic_period"]:
             structural_feature_dict[token_feature] = input_feature_dict[
                 token_feature
             ].index_select(dim=-1, index=parent)
@@ -593,6 +593,7 @@ class OpenDDE(nn.Module):
                 "residue_index",
                 "entity_id",
                 "sym_id",
+                "cyclic_period",
             ]:
                 structural_feature_dict[token_feature] = input_feature_dict[
                     token_feature

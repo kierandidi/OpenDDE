@@ -366,6 +366,24 @@ class SampleDictToFeatures:
             token_array, atom_array, include_discont_poly_poly_bonds=True
         )
         feature_dict = featurizer.get_all_input_features()
+        cyclic_chain_ids = set(self.single_sample_dict.get("cyclicChainIds", ()))
+        cyclic_period = np.zeros(len(token_array), dtype=np.int64)
+        if cyclic_chain_ids:
+            centre_atom_indices = np.asarray(
+                token_array.get_annotation("centre_atom_index"), dtype=np.int64
+            )
+            token_chain_ids = atom_array.chain_id[centre_atom_indices]
+            token_res_ids = atom_array.res_id[centre_atom_indices]
+            unknown = sorted(cyclic_chain_ids - set(token_chain_ids.tolist()))
+            if unknown:
+                raise ValueError(
+                    f"Unknown cyclic chain IDs {unknown}; available chains: "
+                    f"{sorted(set(token_chain_ids.tolist()))}"
+                )
+            for chain_id in cyclic_chain_ids:
+                chain_mask = token_chain_ids == chain_id
+                cyclic_period[chain_mask] = len(np.unique(token_res_ids[chain_mask]))
+        feature_dict["cyclic_period"] = torch.from_numpy(cyclic_period)
 
         token_array_with_frame = featurizer.get_token_frame(
             token_array=token_array,

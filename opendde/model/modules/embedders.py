@@ -9,6 +9,33 @@ import torch.nn.functional as F
 from opendde.model.modules.primitives import LinearNoBias
 from opendde.model.modules.transformer import AtomAttentionEncoder
 
+CYCLIC_RELATIVE_POSITION_SUPPORTED = True
+
+
+def shortest_cyclic_offset(
+    residue_offset: torch.Tensor,
+    cyclic_period: torch.Tensor | None,
+    b_same_chain: torch.Tensor,
+) -> torch.Tensor:
+    """Return signed shortest-path offsets for pairs in cyclic chains.
+
+    A zero period denotes a linear chain. Diametrically opposite residues in
+    even-length cycles retain their linear offset so ties remain deterministic.
+    """
+    if cyclic_period is None:
+        return residue_offset
+    left_period = cyclic_period[..., :, None]
+    right_period = cyclic_period[..., None, :]
+    cyclic_pair = b_same_chain.bool() & (left_period > 0) & (left_period == right_period)
+    linear_distance = torch.abs(residue_offset)
+    wrapped_distance = left_period - linear_distance
+    cyclic_offset = torch.where(
+        wrapped_distance < linear_distance,
+        -wrapped_distance * torch.sign(residue_offset),
+        residue_offset,
+    )
+    return torch.where(cyclic_pair, cyclic_offset, residue_offset)
+
 
 class InputFeatureEmbedder(nn.Module):
     """
@@ -94,6 +121,7 @@ class LazyRelativePositionEncodingFeatures:
         entity_id: torch.Tensor,
         token_index: torch.Tensor,
         sym_id: torch.Tensor,
+        cyclic_period: torch.Tensor | None,
         r_max: int,
         s_max: int,
     ) -> None:
@@ -102,6 +130,7 @@ class LazyRelativePositionEncodingFeatures:
         self.entity_id = entity_id
         self.token_index = token_index
         self.sym_id = sym_id
+        self.cyclic_period = cyclic_period
         self.r_max = r_max
         self.s_max = s_max
 
@@ -142,8 +171,24 @@ class LazyRelativePositionEncodingFeatures:
         b_same_residue = (residue_row[..., :, None] == residue_col[..., None, :]).long()
         b_same_entity = (entity_row[..., :, None] == entity_col[..., None, :]).long()
 
+        residue_offset = residue_row[..., :, None] - residue_col[..., None, :]
+        if self.cyclic_period is not None:
+            period = self.cyclic_period
+            period_row = period[..., row_slice]
+            period_col = period[..., col_slice]
+            left_period = period_row[..., :, None]
+            right_period = period_col[..., None, :]
+            cyclic_pair = b_same_chain.bool() & (left_period > 0) & (left_period == right_period)
+            linear_distance = torch.abs(residue_offset)
+            wrapped_distance = left_period - linear_distance
+            cyclic_offset = torch.where(
+                wrapped_distance < linear_distance,
+                -wrapped_distance * torch.sign(residue_offset),
+                residue_offset,
+            )
+            residue_offset = torch.where(cyclic_pair, cyclic_offset, residue_offset)
         d_residue = torch.clip(
-            input=residue_row[..., :, None] - residue_col[..., None, :] + self.r_max,
+            input=residue_offset + self.r_max,
             min=0,
             max=2 * self.r_max,
         ) * b_same_chain + (1 - b_same_chain) * (2 * self.r_max + 1)
@@ -252,6 +297,7 @@ class RelativePositionEncoding(nn.Module):
                     entity_id=entity_id,
                     token_index=token_index,
                     sym_id=sym_id,
+                    cyclic_period=input_feature_dict.get("cyclic_period"),
                     r_max=self.r_max,
                     s_max=self.s_max,
                 )
@@ -266,10 +312,14 @@ class RelativePositionEncoding(nn.Module):
             b_same_entity = (
                 entity_id[..., :, None] == entity_id[..., None, :]
             ).long()  # [..., N_token, N_token]
+            residue_offset = (
+                residue_index[..., :, None] - residue_index[..., None, :]
+            )
+            residue_offset = shortest_cyclic_offset(
+                residue_offset, input_feature_dict.get("cyclic_period"), b_same_chain
+            )
             d_residue = torch.clip(
-                input=residue_index[..., :, None]
-                - residue_index[..., None, :]
-                + self.r_max,
+                input=residue_offset + self.r_max,
                 min=0,
                 max=2 * self.r_max,
             ) * b_same_chain + (1 - b_same_chain) * (
