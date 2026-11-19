@@ -36,7 +36,7 @@ def merge_covalent_bonds(
     bonds_recorder = defaultdict(list)
     bonds_entity_counts = {}
     for bond_dict in covalent_bonds:
-        bond_unique_string = []
+        bond_unique_string = [str(bond_dict.get("bondOrder", 1))]
         entity_counts = (
             all_entity_counts[str(bond_dict["entity1"])],
             all_entity_counts[str(bond_dict["entity2"])],
@@ -220,8 +220,9 @@ def atom_array_to_input_json(
 
     if token_bonds.size != 0:
         covalent_bonds = []
-        for atoms in token_bonds[:, :2]:
-            bond_dict = {}
+        for atoms in token_bonds:
+            order = int(atoms[2])
+            bond_dict = {"bondOrder": order} if order in (2, 3) else {}
             for i in range(2):
                 positon = atom_array.res_id[atoms[i]]
                 bond_dict[f"entity{i + 1}"] = int(

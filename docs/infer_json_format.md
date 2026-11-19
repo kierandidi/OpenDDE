@@ -159,6 +159,9 @@ Fields:
 - `atom1`, `atom2`: atom names. Integer references are also accepted for mapped
   SMILES or file ligands.
 
+An optional integer `bondOrder` records the formal order in the input topology and output mmCIF.
+Use 1 (default), 2 or 3. The model consumes the connectivity between tokens.
+
 Use `entity1`/`entity2` for new inputs. The old `left_entity`/`right_entity`
 style is accepted for compatibility.
 
