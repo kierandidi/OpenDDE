@@ -63,6 +63,8 @@ match `count`.
 - `templatesPath`: optional template hits file (`.a3m` or `.hhr`), used only with
   `--use_template true`.
 
+The Python runner accepts `get_default_runner(require_template_hits=True)` to require observed atoms from each supplied hits file after native filtering. Chains without a hits file can still be folded.
+
 ## `dnaSequence`
 
 ```json

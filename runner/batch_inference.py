@@ -390,6 +390,7 @@ def get_default_runner(
     foldcp_metrics_jsonl: str = "",
     *,
     device: InferenceDevice = "auto",
+    require_template_hits: bool = False,
 ) -> InferenceRunner:
     """
     Get a default InferenceRunner with the specified configurations.
@@ -412,6 +413,7 @@ def get_default_runner(
         enable_tf32 (bool): Whether to enable TF32.
         deterministic (bool): Whether to enable deterministic PyTorch algorithms.
         use_template (bool): Whether to use templates.
+        require_template_hits (bool): Enable templates and require observed atoms for each supplied hits file.
         use_rna_msa (bool): Whether to use RNA MSA.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Whether to use TFG guidance.
@@ -481,7 +483,9 @@ def get_default_runner(
     configs.enable_efficient_fusion = enable_fusion
     configs.enable_tf32 = enable_tf32
     configs.deterministic = deterministic
+    use_template = use_template or require_template_hits
     configs.use_template = use_template
+    configs.require_template_hits = require_template_hits
     configs.use_rna_msa = use_rna_msa
     configs.need_atom_confidence = need_atom_confidence
     configs.sample_diffusion.guidance["enable"] = use_tfg_guidance
