@@ -185,3 +185,13 @@ The inference-only build ignores legacy `constraint` fields. Use
 
 The summary JSON includes confidence metrics such as `plddt`, `gpde`, `ptm`,
 `iptm`, clash flags, and `ranking_score` when available.
+
+## Fixed assemblies in annotated mmCIF
+
+`opendde.data.inference.json_maker.annotated_cif_to_input_json(path)` reads a materialized assembly
+and returns one inference job. It preserves the supplied chain IDs, waters, modifications, and
+inter-residue covalent bonds. The optional category `_msa_paths_by_chain_id` points to a plain or
+gzipped alignment for each protein or RNA chain. For protein templates, `_template_hits_by_chain_id`
+points to an existing HMMsearch A3M or HHsearch HHR. Relative paths resolve beside the CIF. Set
+`require_template_hits=True` on the runner to require observed template atoms on every chain that
+requests hits.

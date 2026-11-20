@@ -2,15 +2,18 @@
 # Copyright (c) 2026 Aureka AI Research
 import argparse
 import copy
+import gzip
 import json
 import os
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from biotite.structure import AtomArray, get_chain_starts, get_residue_starts
 
 from opendde.data.constants import STD_RESIDUES
+from opendde.data.core import ccd
 from opendde.data.core.filter import Filter
 from opendde.data.core.parser import AddAtomArrayAnnot, MMCIFParser
 from opendde.data.utils import (
@@ -246,6 +249,150 @@ def atom_array_to_input_json(
         with open(output_json, "w") as f:
             json.dump([json_dict], f, indent=4)
     return json_dict
+
+
+def _read_chain_references(block, directory, chains):
+    for category, field in (
+        ("msa_paths_by_chain_id", "unpairedMsa"),
+        ("template_hits_by_chain_id", "templatesPath"),
+    ):
+        if category not in block:
+            continue
+        for chain_id, column in block[category].items():
+            allowed = (
+                ("proteinChain", "rnaSequence")
+                if field == "unpairedMsa"
+                else ("proteinChain",)
+            )
+            if chain_id not in chains or chains[chain_id][1] not in allowed:
+                raise ValueError(
+                    f"{category} refers to an absent or incompatible chain {chain_id}"
+                )
+            ref = directory / column.as_item()
+            entity = chains[chain_id][2]
+            if field == "templatesPath":
+                if ref.suffix not in {".a3m", ".hhr"} or not ref.is_file():
+                    raise ValueError(
+                        f"Chain {chain_id} needs a readable .a3m or .hhr template hit file: {ref}"
+                    )
+                entity[field] = str(ref.resolve())
+            else:
+                with (gzip.open if ref.suffix == ".gz" else open)(ref, "rt") as msa:
+                    entity[field] = msa.read()
+
+
+def _fixed_assembly_bonds(atoms, positions, chains):
+    bonds = []
+    edges = atoms.bonds.as_array()
+    left_atom, right_atom = edges[:, 0], edges[:, 1]
+    inter_residue = (atoms.chain_id[left_atom] != atoms.chain_id[right_atom]) | (
+        positions[left_atom] != positions[right_atom]
+    )
+    for a, b, order in edges[inter_residue]:
+        if positions[a] > positions[b]:
+            a, b = b, a
+        i, j = int(positions[a]), int(positions[b])
+        chain_a, chain_b = atoms.chain_id[[a, b]]
+        atom_a, atom_b = atoms.atom_name[[a, b]]
+        left, kind, entity = chains[chain_a]
+        right = chains[chain_b][0]
+        if left == right:
+            if kind == "proteinChain" and (i, j, atom_a, atom_b) == (
+                1,
+                len(entity["sequence"]),
+                "N",
+                "C",
+            ):
+                raise ValueError(
+                    f"Head-to-tail cyclic chain {chain_a} needs a cyclic predictor runtime"
+                )
+            backbone = ("C", "N") if kind == "proteinChain" else ("O3'", "P")
+            if (
+                kind != "ligand"
+                and j == i + 1
+                and (atom_a, atom_b) == backbone
+                and order in (0, 1)
+            ):
+                continue
+        if order not in (0, 1, 2, 3):
+            raise ValueError(f"Unsupported inter-residue bond order {order}")
+        bond = {
+            "entity1": left,
+            "position1": i,
+            "atom1": str(atom_a),
+            "copy1": 1,
+            "entity2": right,
+            "position2": j,
+            "atom2": str(atom_b),
+            "copy2": 1,
+        }
+        if order > 1:
+            bond["bondOrder"] = int(order)
+        bonds.append(bond)
+    return bonds
+
+
+def annotated_cif_to_input_json(
+    mmcif_file: str | Path, sample_name: str | None = None
+) -> dict:
+    """Read a fixed, annotated assembly. Per-chain references are relative to its CIF."""
+    path = Path(mmcif_file)
+    parser = MMCIFParser(str(path))
+    block = parser.cif.block
+    coords = block.get("condition_coordinate_1_atom")
+    if coords is not None and any(
+        np.isfinite(coords[f"val{i}"].as_array(float)).any() for i in range(3)
+    ):
+        raise ValueError(
+            "Coordinate annotations cannot be used as deposited template hits"
+        )
+    atoms = parser.get_structure("first", model=1, bond_lenth_threshold=None)
+    chain_types = {
+        "polypeptide(L)": "proteinChain",
+        "polyribonucleotide": "rnaSequence",
+        "polydeoxyribonucleotide": "dnaSequence",
+    }
+    chains = {}
+    sequences = []
+    positions = np.empty(len(atoms), dtype=int)
+    for chain_id in dict.fromkeys(atoms.chain_id):
+        indices = np.flatnonzero(atoms.chain_id == chain_id)
+        chain = atoms[indices]
+        bounds = get_residue_starts(chain, add_exclusive_stop=True)
+        codes = chain.res_name[bounds[:-1]].tolist()
+        positions[indices] = np.repeat(np.arange(1, len(bounds)), np.diff(bounds))
+        polymer = parser.entity_poly_type.get(chain.label_entity_id[0])
+        if polymer is not None and polymer not in chain_types:
+            raise ValueError(f"Unsupported polymer type {polymer} in chain {chain_id}")
+        kind = chain_types.get(polymer, "ligand")
+        entity = {"id": [str(chain_id)], "count": 1}
+        if kind == "ligand":
+            entity["ligand"] = "CCD_" + "_".join(codes)
+        else:
+            sequence = ccd.res_names_to_sequence(codes)
+            protein = kind == "proteinChain"
+            entity["sequence"] = sequence if protein else sequence.replace("X", "N")
+            pos, code = (
+                ("ptmPosition", "ptmType")
+                if protein
+                else ("basePosition", "modificationType")
+            )
+            modifications = [
+                {pos: i, code: "CCD_" + res}
+                for i, res in enumerate(codes, 1)
+                if res not in STD_RESIDUES
+            ]
+            if modifications:
+                entity["modifications"] = modifications
+        chains[chain_id] = (len(sequences) + 1, kind, entity)
+        sequences.append({kind: entity})
+
+    _read_chain_references(block, path.parent, chains)
+    return {
+        "name": sample_name or path.stem,
+        "sequences": sequences,
+        "covalent_bonds": _fixed_assembly_bonds(atoms, positions, chains),
+    }
 
 
 def cif_to_input_json(
