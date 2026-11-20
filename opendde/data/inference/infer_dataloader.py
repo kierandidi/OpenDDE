@@ -253,6 +253,7 @@ class InferenceDataset(Dataset):
             atom_array=atom_array,
             use_template=self.use_template,
             online_template_featurizer=self.online_template_featurizer,
+            require_template_hits=self.configs.get("require_template_hits", False),
         )
         # Make dummy features for not implemented features
         dummy_feats = []

@@ -25,8 +25,7 @@ from biotite.structure.box import coord_to_fraction, fraction_to_coord
 from biotite.structure.io.pdbx import convert as pdbx_convert
 
 PDBX_BOND_TYPE_ID_TO_TYPE = {
-    # Although a covalent bond, could in theory have a higher bond order,
-    # practically inter-residue bonds are always single
+    # Default order for links without an explicit pdbx_value_order.
     "covale": BondType.SINGLE,
     "covale_base": BondType.SINGLE,
     "covale_phosphate": BondType.SINGLE,
@@ -219,7 +218,12 @@ def _parse_inter_residue_bonds(atom_site, struct_conn):
     bond_type_id = bond_type_id[covale_mask][mapping_exists_mask]
     # The type ID is always present in the dictionary,
     # as it was used to filter the applicable bonds
-    bond_types = [PDBX_BOND_TYPE_ID_TO_TYPE[type_id] for type_id in bond_type_id]
+    bond_types = np.array([PDBX_BOND_TYPE_ID_TO_TYPE[type_id] for type_id in bond_type_id])
+    if "pdbx_value_order" in struct_conn:
+        orders = np.char.lower(struct_conn["pdbx_value_order"].as_array(str)[covale_mask][mapping_exists_mask])
+        covalent = np.char.startswith(bond_type_id.astype(str), "covale")
+        bond_types[covalent & (orders == "doub")] = BondType.DOUBLE
+        bond_types[covalent & (orders == "trip")] = BondType.TRIPLE
 
     return BondList(
         atom_site.row_count,

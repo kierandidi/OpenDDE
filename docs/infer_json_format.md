@@ -63,6 +63,8 @@ match `count`.
 - `templatesPath`: optional template hits file (`.a3m` or `.hhr`), used only with
   `--use_template true`.
 
+The Python runner accepts `get_default_runner(require_template_hits=True)` to require observed atoms from each supplied hits file after native filtering. Chains without a hits file can still be folded.
+
 ## `dnaSequence`
 
 ```json
@@ -159,6 +161,9 @@ Fields:
 - `atom1`, `atom2`: atom names. Integer references are also accepted for mapped
   SMILES or file ligands.
 
+An optional integer `bondOrder` records the formal order in the input topology and output mmCIF.
+Use 1 (default), 2 or 3. The model consumes the connectivity between tokens.
+
 Use `entity1`/`entity2` for new inputs. The old `left_entity`/`right_entity`
 style is accepted for compatibility.
 
@@ -180,3 +185,13 @@ The inference-only build ignores legacy `constraint` fields. Use
 
 The summary JSON includes confidence metrics such as `plddt`, `gpde`, `ptm`,
 `iptm`, clash flags, and `ranking_score` when available.
+
+## Fixed assemblies in annotated mmCIF
+
+`opendde.data.inference.json_maker.annotated_cif_to_input_json(path)` reads a materialized assembly
+and returns one inference job. It preserves the supplied chain IDs, waters, modifications, and
+inter-residue covalent bonds. The optional category `_msa_paths_by_chain_id` points to a plain or
+gzipped alignment for each protein or RNA chain. For protein templates, `_template_hits_by_chain_id`
+points to an existing HMMsearch A3M or HHsearch HHR. Relative paths resolve beside the CIF. Set
+`require_template_hits=True` on the runner to require observed template atoms on every chain that
+requests hits.

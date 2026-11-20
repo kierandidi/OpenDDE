@@ -274,9 +274,12 @@ class SampleDictToFeatures:
                 f"and entity2 ({bond_info_dict.get('right_entity', bond_info_dict.get('entity2'))}) are not equal. "
             )
 
+            order = bond_info_dict.get("bondOrder", 1)
+            if type(order) is not int or order not in (1, 2, 3):
+                raise ValueError(f"bondOrder must be 1, 2 or 3, got {order!r}")
             # Create bond between each asym chain pair
             for atom_idx1, atom_idx2 in zip(bond_atoms[0], bond_atoms[1]):
-                atom_array.bonds.add_bond(atom_idx1, atom_idx2, 1)
+                atom_array.bonds.add_bond(atom_idx1, atom_idx2, order)
                 bond_count[atom_idx1] = bond_count.get(atom_idx1, 0) + 1
                 bond_count[atom_idx2] = bond_count.get(atom_idx2, 0) + 1
 
